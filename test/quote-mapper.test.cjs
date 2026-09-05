@@ -80,6 +80,24 @@ test('suggest: 输入为空/异常结构安全返回空', () => {
   assert.deepEqual(emSuggestToCandidates({ QuotationCodeTable: { Data: 'x' } }), []);
 });
 
+test('suggest: 科创板(Classify=23 数字码)保留,北交所(NEEQ)仍滤除', () => {
+  // fixture 取自真实探针: 东财 suggest 对科创板返回 Classify=23(number), SecurityTypeName=科创板
+  const fx = { QuotationCodeTable: { Data: [
+    { Code: '688981', Name: '中芯国际', Classify: 23, SecurityTypeName: '科创板', QuoteID: '1.688981' },
+    { Code: '688001', Name: '华兴源创', Classify: 23, SecurityTypeName: '科创板', QuoteID: '1.688001' },
+    { Code: '920000', Name: '安徽凤凰', Classify: 'NEEQ', SecurityTypeName: '京A', QuoteID: '0.920000' },
+    { Code: '600519', Name: '贵州茅台', Classify: 'AStock', SecurityTypeName: '沪A', QuoteID: '1.600519' },
+  ] } };
+  const cs = emSuggestToCandidates(fx);
+  const smic = cs.find(c => c.quoteId === '1.688981');
+  assert.ok(smic, '科创板中芯国际应被保留');
+  assert.equal(smic.securityType, '科创板');
+  assert.equal(smic.classify, 23);
+  assert.ok(cs.some(c => c.code === '688001'), '科创板华兴源创应被保留');
+  assert.ok(!cs.some(c => c.classify === 'NEEQ'), '北交所(NEEQ)不应在结果中');
+  assert.ok(cs.some(c => c.code === '600519'), '普通 AStock 不受影响');
+});
+
 test('suggest: 相同 QuoteID 去重', () => {
   const dup = { QuotationCodeTable: { Data: [
     { Code: '00700', Name: '腾讯控股', Classify: 'HK', SecurityTypeName: '港股', QuoteID: '116.00700' },
