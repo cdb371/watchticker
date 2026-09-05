@@ -25,18 +25,20 @@ function createWindow() {
     },
   });
   win.setAlwaysOnTop(true);
-  // [冒烟插桩] did-finish-load 后:读 DOM 状态 + 端到端打 IPC 拉真实行情自证链路,打包前移除
-  win.webContents.on('did-finish-load', async () => {
-    try {
-      const info = await win.webContents.executeJavaScript(
-        "JSON.stringify({title:document.title, tickerItems:document.querySelectorAll('.tk-item').length, watchRows:document.querySelectorAll('.watch-row').length})"
-      );
-      console.log('[main] dom', info);
-      const q = await win.webContents.executeJavaScript(
-        "(async()=>JSON.stringify(await window.wt.quotes(['1.600519','116.00700','105.AAPL','113.cu2609'])))()"
-      );
-      console.log('[main] ipc-quotes', q);
-    } catch (e) { console.log('[main] eval-fail', e.message); }
+  // [冒烟插桩] 等首轮行情落地后自证 DOM+IPC 真实数据。打包前移除
+  win.webContents.on('did-finish-load', () => {
+    setTimeout(async () => {
+      try {
+        const info = await win.webContents.executeJavaScript(
+          "JSON.stringify({tickerItems:document.querySelectorAll('.tk-item').length, watchRows:document.querySelectorAll('.watch-row').length, firstRow:document.querySelector('.w-name')?.textContent||''})"
+        );
+        console.log('[main] dom', info);
+        const q = await win.webContents.executeJavaScript(
+          "(async()=>JSON.stringify(await window.wt.quotes(['1.600519','116.00700','105.AAPL','113.cu2609'])))()"
+        );
+        console.log('[main] ipc-quotes', q);
+      } catch (e) { console.log('[main] eval-fail', e.message); }
+    }, 2500);
   });
   win.loadFile('index.html');
   return win;

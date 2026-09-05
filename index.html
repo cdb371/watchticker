@@ -149,47 +149,67 @@
 
 <script>
 /* ================= 数据 =================
-   真实接入时：把 fetchQuotes 换成真实行情源；把 SEARCH_POOL
-   换成搜索联想接口。下面 SEARCH_POOL 模拟"可搜索添加"的股票池。 */
-const SEARCH_POOL = [
-  { code: '000001', name: '平安银行', base: 11.32 }, { code: '000002', name: '万科A', base: 7.85 },
-  { code: '000063', name: '中兴通讯', base: 28.60 }, { code: '000333', name: '美的集团', base: 62.40 },
-  { code: '000651', name: '格力电器', base: 40.15 }, { code: '000858', name: '五粮液', base: 128.55 },
-  { code: '002594', name: '比亚迪', base: 241.20 },   { code: '600036', name: '招商银行', base: 34.28 },
-  { code: '600519', name: '贵州茅台', base: 1458.0 }, { code: '601318', name: '中国平安', base: 48.16 },
-  { code: '601899', name: '紫金矿业', base: 17.42 },  { code: '688981', name: '中芯国际', base: 52.90 },
-  { code: '300750', name: '宁德时代', base: 186.40 }, { code: '601012', name: '隆基绿能', base: 19.66 },
-  { code: '600276', name: '恒瑞医药', base: 43.20 },  { code: '300059', name: '东方财富', base: 13.85 },
-  { code: '600030', name: '中信证券', base: 21.74 },  { code: '000725', name: '京东方A', base: 4.12 },
-  { code: '600031', name: '三一重工', base: 15.96 },  { code: '000651', name: '格力电器', base: 40.15 },
-  { code: '603288', name: '海天味业', base: 35.60 },  { code: '600900', name: '长江电力', base: 27.31 },
+   数据源:IPC(window.wt,Electron 内)或降级(无 wt 时纯浏览器预览用确定性伪行情)。
+   自选列表 localStorage 持久化,启动即拉真实行情。 */
+const IPC = typeof window !== 'undefined' && !!window.wt;
+
+const DEFAULT_WATCH = [
+  { quoteId: '1.600519', code: '600519', name: '贵州茅台', base: 1458 },
+  { quoteId: '0.300750', code: '300750', name: '宁德时代', base: 186.4 },
+  { quoteId: '0.002594', code: '002594', name: '比亚迪', base: 241.2 },
+  { quoteId: '1.601318', code: '601318', name: '中国平安', base: 48.16 },
+  { quoteId: '0.000858', code: '000858', name: '五粮液', base: 128.55 },
+  { quoteId: '1.600036', code: '600036', name: '招商银行', base: 34.28 },
+  { quoteId: '1.688981', code: '688981', name: '中芯国际', base: 52.9 },
+  { quoteId: '1.601899', code: '601899', name: '紫金矿业', base: 17.42 },
 ];
+const LS_KEY = 'wt.watch.v1';
 
-/* 初始自选（可增删） */
-const WATCH = [
-  { code: '600519', name: '贵州茅台', base: 1458.0 },
-  { code: '300750', name: '宁德时代', base: 186.40 },
-  { code: '002594', name: '比亚迪', base: 241.20 },
-  { code: '601318', name: '中国平安', base: 48.16 },
-  { code: '000858', name: '五粮液', base: 128.55 },
-  { code: '600036', name: '招商银行', base: 34.28 },
-  { code: '688981', name: '中芯国际', base: 52.90 },
-  { code: '601899', name: '紫金矿业', base: 17.42 },
-];
-
-let quotes = WATCH.map(newQuote);
-
-/* ================= 行情与格式化 ================= */
-function newQuote(item) {
-  const drift = (Math.random() * 1.8 - 0.9) / 100;          // ±0.9%
-  const price = item.base * (1 + drift);
-  const delta = price - item.base;
-  const pct = (delta / item.base) * 100;
-  return { code: item.code, name: item.name, base: item.base, price, delta, pct };
+function loadWatch() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const a = JSON.parse(raw);
+      if (Array.isArray(a) && a.length) return a.map(w => ({ quoteId: String(w.quoteId), code: String(w.code), name: String(w.name) }));
+    }
+  } catch (e) { /* localStorage 损坏 → 回默认 */ }
+  return DEFAULT_WATCH.map(w => ({ quoteId: w.quoteId, code: w.code, name: w.name }));
 }
-const cls = v => v > 0.0005 ? 'up' : v < -0.0005 ? 'down' : 'flat';
-const fmt = (n, d = 2) => n.toFixed(d);
-const signed = (n, d = 2) => (n >= 0 ? '+' : '') + n.toFixed(d);
+function saveWatch() { try { localStorage.setItem(LS_KEY, JSON.stringify(watch)); } catch (e) {} }
+
+let watch = loadWatch();   // 自选引用列表(增删即持久化)
+let quotes = [];           // 行情快照(渲染源)
+
+/* ================= 数据源适配 ================= */
+async function doSearch(kw) {   // 联想 → 候选 [{quoteId,code,name,securityType}]
+  if (IPC) { try { return await window.wt.suggest(kw); } catch (e) { return []; } }
+  return [];
+}
+async function doFetchQuotes(items) {   // 批量行情 → [{quoteId,market,code,name,price,delta,pct}]
+  if (!items.length) return [];
+  if (IPC) {
+    try { return await window.wt.quotes(items.map(w => w.quoteId)); } catch (e) { return []; }
+  }
+  // 降级:浏览器直开时确定性伪行情,保证预览可跑(注意:此分支仅供无 Electron 时看布局)
+  const phase = Date.now() / 2000;
+  return items.map((w, i) => {
+    const base = w.base || 10 + ((w.code.charCodeAt(0) * 7 + w.code.length * 13) % 900);
+    const price = base * (1 + Math.sin(phase + i * 1.7) * 0.004);
+    return { quoteId: w.quoteId, market: w.quoteId.split('.')[0], code: w.code, name: w.name, price, delta: price - base, pct: ((price - base) / base) * 100 };
+  });
+}
+
+/* 快照刷新:拉行情 → 渲染。网络失败时保留旧快照(静默) */
+async function refresh() {
+  const list = await doFetchQuotes(watch);
+  if (list && list.length) quotes = list;
+  renderTicker();
+  renderPanel();
+}
+
+const cls = v => (v === null || v === undefined || Number.isNaN(v)) ? 'flat' : v > 0.0005 ? 'up' : v < -0.0005 ? 'down' : 'flat';
+const fmt = (n, d = 2) => (n === null || n === undefined || Number.isNaN(n)) ? '--' : n.toFixed(d);
+const signed = (n, d = 2) => (n === null || n === undefined || Number.isNaN(n)) ? '--' : (n >= 0 ? '+' : '') + n.toFixed(d);
 
 /* ================= 排序状态 ================= */
 let sort = { key: null, dir: 1 };   // key: 'price'|'delta'|'pct'|null(加入序)
@@ -240,7 +260,7 @@ function renderPanel() {
     return;
   }
   rows.innerHTML = sortedRows().map((q, i) => `
-    <div class="watch-row" data-code="${q.code}">
+    <div class="watch-row" data-qid="${q.quoteId}">
       <span class="w-name">${q.name}<span class="w-code">${q.code}</span></span>
       <span class="w-price ${cls(q.delta)}">${fmt(q.price)}</span>
       <span class="w-delta ${cls(q.delta)}">${signed(q.delta)}</span>
@@ -267,9 +287,11 @@ document.querySelectorAll('.sortable').forEach(th => {
 document.getElementById('rows').addEventListener('click', e => {
   const del = e.target.closest('.w-del');
   if (!del) return;
-  const cd = del.closest('.watch-row').dataset.code;
-  const i = quotes.findIndex(q => q.code === cd);
-  if (i >= 0) quotes.splice(i, 1);
+  const qid = del.closest('.watch-row').dataset.qid;
+  if (!qid) return;
+  watch = watch.filter(w => w.quoteId !== qid);
+  quotes = quotes.filter(q => q.quoteId !== qid);
+  saveWatch();
   renderTicker(); renderPanel(); hideSuggest();
 });
 
@@ -278,67 +300,66 @@ const scrollBox = document.getElementById('scrollBox');
 scrollBox.addEventListener('mouseenter', () => widget.classList.add('paused'));
 scrollBox.addEventListener('mouseleave', () => widget.classList.remove('paused'));
 
-/* ================= 搜索添加 ================= */
+/* ================= 搜索添加(真实联想) ================= */
 const searchInput = document.getElementById('searchInput');
 const suggestBox = document.getElementById('suggest');
 const msgEl = document.getElementById('searchMsg');
+let curHits = [];
 
 function msg(t) { msgEl.textContent = t || ''; }
 function hideSuggest() { suggestBox.style.display = 'none'; suggestBox.innerHTML = ''; }
-function findInWatch(code) { return quotes.find(q => q.code === code); }
+function inWatch(item) { return watch.some(w => w.quoteId === item.quoteId); }
 
-function addStock(item) {
-  if (!item || findInWatch(item.code)) { msg(item ? `「${item.name}」已在自选股中` : '未找到该股票'); return; }
-  quotes.push({ ...item });
+function addStock(item) {   // item: {quoteId, code, name}
+  if (!item || !item.quoteId) { msg('未找到该标的'); return; }
+  if (inWatch(item)) { msg(`「${item.name}」已在自选股中`); return; }
+  watch.push({ quoteId: item.quoteId, code: item.code, name: item.name });
+  saveWatch();
   if (sort.key) { sort.key = null; document.querySelectorAll('.sortable .mark').forEach(m => m.textContent = ''); }
-  renderTicker(); renderPanel();
+  refresh();
   msg(`已添加 ${item.name}（${item.code}）`);
 }
 
-function filterPool() {
+let debounceTimer = null;
+function onSearchInput() {
+  clearTimeout(debounceTimer);
   const kw = searchInput.value.trim();
-  if (!kw) { hideSuggest(); return []; }
-  const up = kw.toUpperCase();
-  const hits = SEARCH_POOL.filter(s =>
-    s.name.includes(kw) || s.code.includes(kw) || up.includes(s.code)).slice(0, 6);
-  return hits;
+  if (!kw) { hideSuggest(); msg(''); return; }
+  debounceTimer = setTimeout(async () => {
+    const hits = await doSearch(kw);
+    curHits = hits.slice(0, 8);
+    if (!curHits.length) { hideSuggest(); return; }
+    suggestBox.innerHTML = curHits.map(h =>
+      `<div class="opt" data-qid="${h.quoteId}">${h.name}<span>${h.code} · ${h.securityType || ''}</span></div>`).join('');
+    suggestBox.style.display = 'block';
+  }, 220);
 }
-function showSuggest() {
-  const hits = filterPool();
-  if (!hits.length) { hideSuggest(); return; }
-  suggestBox.innerHTML = hits.map(h =>
-    `<div class="opt" data-code="${h.code}">${h.name}<span>${h.code}</span></div>`).join('');
-  suggestBox.style.display = 'block';
-}
-searchInput.addEventListener('input', showSuggest);
-searchInput.addEventListener('focus', showSuggest);
-searchInput.addEventListener('keydown', e => {
+searchInput.addEventListener('input', onSearchInput);
+searchInput.addEventListener('focus', onSearchInput);
+searchInput.addEventListener('keydown', async e => {
   if (e.key !== 'Enter') return;
-  const kw = searchInput.value.trim();
-  const hits = filterPool();
-  if (hits.length === 1) { addStock(hits[0]); searchInput.value = ''; hideSuggest(); }
-  else {
-    // 兜底：允许手动 "代码 名称"（真实版会走搜索接口）
-    const m = kw.split(/\s+/);
-    if (m.length >= 1 && /^\d{6}$/.test(m[0])) {
-      addStock({ code: m[0], name: m[1] || m[0], base: 20 + Math.random() * 980 });
-      searchInput.value = ''; hideSuggest();
-    } else msg(hits.length > 1 ? '匹配到多个，点候选或输入完整 6 位代码' : '未匹配到，试试完整 6 位代码');
+  const hits = await doSearch(searchInput.value.trim());
+  if (hits.length === 1) {
+    addStock(hits[0]); searchInput.value = ''; hideSuggest(); msg('');
+  } else if (hits.length > 1) {
+    curHits = hits.slice(0, 8);
+    msg('匹配到多个，点选下方候选');
+  } else {
+    msg('未匹配到，试试完整代码（如 600519 / 00700 / AAPL / cu2609）');
   }
 });
 suggestBox.addEventListener('mousedown', e => {
   const opt = e.target.closest('.opt');
-  if (opt) { const s = SEARCH_POOL.find(x => x.code === opt.dataset.code); addStock(s); searchInput.value = ''; hideSuggest(); }
+  if (opt) {
+    const hit = curHits.find(h => h.quoteId === opt.dataset.qid);
+    if (hit) addStock(hit);
+  }
+  searchInput.value = ''; hideSuggest(); msg('');
 });
 
-/* ================= 行情刷新循环 ================= */
-function tick() {
-  quotes = quotes.map(q => newQuote(q));
-  renderTicker();
-  renderPanel();
-}
-tick();
-setInterval(tick, 2000);
+/* ================= 行情刷新循环(真实行情轮询) ================= */
+refresh();
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>

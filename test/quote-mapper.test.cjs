@@ -29,15 +29,17 @@ test('ulist: 全品类 5 条正确映射为行情记录', () => {
   const qs = emUlistToQuotes(FIX_ULIST);
   assert.equal(qs.length, 5);
   const maotai = qs.find(q => q.code === '600519');
-  assert.deepEqual(maotai, { market: '1', code: '600519', name: '贵州茅台', price: 1330.0, delta: 31.12, pct: 2.4 });
+  assert.deepEqual(maotai, { quoteId: '1.600519', market: '1', code: '600519', name: '贵州茅台', price: 1330.0, delta: 31.12, pct: 2.4 });
   const tencent = qs.find(q => q.code === '00700');
   assert.equal(tencent.name, '腾讯控股');
   assert.equal(tencent.price, 442.8);
   assert.equal(tencent.pct, 2.26);
   assert.equal(tencent.market, '116');
+  assert.equal(tencent.quoteId, '116.00700');
   const copper = qs.find(q => q.code === 'cu2609');
   assert.equal(copper.pct, 0.16);
   assert.equal(copper.market, '113');
+  assert.equal(copper.quoteId, '113.cu2609');
 });
 
 test('ulist: 数值缺失/代码空的记录被过滤', () => {

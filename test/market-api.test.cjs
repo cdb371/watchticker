@@ -53,8 +53,9 @@ test('fetchQuotes: URL secids 拼装正确 + 5 类字段参数', async () => {
   assert.equal(u.searchParams.get('fltt'), '2');
   assert.equal(u.searchParams.get('invt'), '2');
   assert.equal(out.length, 2);
-  assert.deepEqual(out[0], { market: '1', code: '600519', name: '贵州茅台', price: 1330.0, delta: 31.12, pct: 2.4 });
+  assert.deepEqual(out[0], { quoteId: '1.600519', market: '1', code: '600519', name: '贵州茅台', price: 1330.0, delta: 31.12, pct: 2.4 });
   assert.equal(out[1].name, '腾讯控股');
+  assert.equal(out[1].quoteId, '116.00700');
 });
 
 test('fetchQuotes: 空数组不请求返回 []', async () => {
