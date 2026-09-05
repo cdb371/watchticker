@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>自选股悬浮窗 · 交互原型 v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: linear-gradient(160deg, #2b3547 0%, #3a4a63 55%, #2b3547 100%);
+    min-height: 100vh; user-select: none; color: #e8ecf4;
+  }
+  /* ---------- 假的"办公窗口"，衬托悬浮感 ---------- */
+  .fake-window { position: absolute; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; }
+  .fake-window .bar { height: 26px; border-bottom: 1px solid rgba(255,255,255,.05); display:flex; align-items:center; gap:5px; padding: 0 8px; }
+  .fake-window .bar i { width: 7px; height: 7px; border-radius: 50%; display:inline-block; }
+  .fake-window .content { padding: 12px; color: rgba(255,255,255,.15); font-size: 12px; line-height: 1.9; letter-spacing: 1px; }
+  #win1 { top: 40px;  left: 60px;  width: 420px; height: 210px; }
+  #win2 { top: 290px; left: 60px;  width: 420px; height: 150px; }
+  #win3 { top: 70px;  right: 90px; width: 460px; height: 260px; }
+
+  /* ---------- 悬浮窗整体 ---------- */
+  .float-widget {
+    position: fixed; left: 120px; bottom: 150px; z-index: 99;
+    width: 430px;
+    background: rgba(20, 23, 30, .95);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    overflow: hidden;
+  }
+
+  /* ---------- 窄条（常驻形态：滚动播放） ---------- */
+  .ticker-bar { display: flex; align-items: center; height: 38px; cursor: pointer; }
+  .ticker-title {
+    flex: 0 0 auto; display:flex; align-items:center; gap:6px;
+    padding: 0 12px; border-right: 1px solid rgba(255,255,255,.12);
+    font-size: 12px; color: #dbe7ff; font-weight: 600; height: 100%;
+  }
+  .ticker-title .dot { width: 7px; height: 7px; border-radius: 50%; background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+  .ticker-scroll { flex: 1 1 auto; overflow: hidden; height: 100%; position: relative; }
+  .ticker-track {
+    display: inline-flex; align-items: center; height: 100%;
+    white-space: nowrap; will-change: transform;
+    animation: marquee 26s linear infinite;
+  }
+  .float-widget.paused .ticker-track { animation-play-state: paused; }
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .tk-item { display: inline-flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 13px; }
+  .tk-name { color: #f2f5fa; }
+  .tk-price { color: #ffffff; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tk-pct  { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 56px; }
+  .tk-bar-arrow { flex: 0 0 auto; padding: 0 10px; color: #9fb0c6; font-size: 11px; }
+
+  /* ---------- 展开面板 ---------- */
+  .panel { border-top: 1px solid rgba(255,255,255,.10); display: none; }
+  .float-widget.open .panel { display: block; }
+
+  /* 搜索框（仅展开时可见） */
+  .search-zone { padding: 10px 12px 6px; }
+  .search-zone input {
+    width: 100%; padding: 8px 12px; font-size: 13px; color: #eef2f8;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16);
+    border-radius: 6px; outline: none;
+  }
+  .search-zone input::placeholder { color: #7c8aa0; }
+  .search-zone input:focus { border-color: #4a9eff; background: rgba(255,255,255,.10); }
+  .suggest {
+    margin: 6px 12px 0; padding: 4px; background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.10); border-radius: 6px; display: none;
+    max-height: 150px; overflow: auto;
+  }
+  .suggest .opt { padding: 6px 8px; font-size: 12px; cursor: pointer; color: #dfe7f2; border-radius: 4px; display:flex; justify-content: space-between; }
+  .suggest .opt:hover, .suggest .opt.sel { background: #4a9eff; color: #fff; }
+  .search-msg { padding: 2px 12px 8px; font-size: 11px; color: #8ea0bb; min-height: 15px; }
+
+  /* 表头：三列可点击排序 */
+  .panel-head {
+    display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.1fr; gap: 8px; align-items: center;
+    padding: 6px 14px; font-size: 12px; color: #93a1b5;
+    border-top: 1px solid rgba(255,255,255,.06); border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .sortable { cursor: pointer; text-align: right; user-select: none; color: #b9c6d8; }
+  .sortable:hover { color: #fff; }
+  .sortable .mark { margin-left: 3px; font-size: 10px; color: #4a9eff; }
+  .ph { text-align: right; }
+
+  /* 列表行 */
+  .watch-rows { max-height: 264px; overflow-y: auto; }
+  .watch-row {
+    display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.1fr; gap: 8px; align-items: center;
+    padding: 6px 14px; font-size: 13px; position: relative;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .watch-row:hover { background: rgba(255,255,255,.06); }
+  .w-name { color: #f2f5fa; font-weight: 600; }
+  .w-code { color: #8294ab; font-size: 11px; margin-left: 6px; font-weight: 400; }
+  .w-price, .w-delta, .w-pct { text-align: right; font-variant-numeric: tabular-nums; }
+  .w-price { color: #ffffff; font-weight: 600; }
+  .w-delta, .w-pct { font-weight: 600; }
+  .w-del {
+    position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; line-height: 15px; text-align: center;
+    border-radius: 50%; color: #7c8aa0; cursor: pointer; display: none; font-size: 12px;
+  }
+  .watch-row:hover .w-del { display: block; }
+  .w-del:hover { background: rgba(255,255,255,.15); color: #ff7a7a; }
+  .empty-tip { padding: 18px 14px; text-align: center; color: #7c8aa0; font-size: 12px; }
+
+  /* 涨跌色：A股 红涨绿跌 */
+  .up   { color: #ff5252 !important; }
+  .down { color: #2ecc71 !important; }
+  .flat { color: #a8b2c0 !important; }
+
+  .panel-foot { padding: 5px 14px; font-size: 10px; color: #6d7c92; text-align: right; border-top: 1px solid rgba(255,255,255,.04); }
+</style>
+</head>
+<body>
+
+<div class="fake-window" id="win1"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">工作文档 · 周报进度<br>……</div></div>
+<div class="fake-window" id="win2"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">表格数据整理……</div></div>
+<div class="fake-window" id="win3"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">IM 对话窗口……</div></div>
+
+<div class="float-widget" id="widget">
+  <div class="ticker-bar" id="bar">
+    <div class="ticker-title"><span class="dot"></span>自选股 <span id="count"></span></div>
+    <div class="ticker-scroll" id="scrollBox"><div class="ticker-track" id="track"></div></div>
+    <div class="tk-bar-arrow" id="arrow">▲</div>
+  </div>
+
+  <div class="panel">
+    <!-- 搜索添加：仅展开时显示 -->
+    <div class="search-zone">
+      <input id="searchInput" type="text" placeholder="输入代码或名称搜索，回车添加（如 600519 / 茅台）" autocomplete="off">
+      <div class="suggest" id="suggest"></div>
+    </div>
+    <div class="search-msg" id="searchMsg"></div>
+
+    <div class="panel-head">
+      <span>名称</span>
+      <span class="sortable ph" data-key="price">最新价<span class="mark"></span></span>
+      <span class="sortable ph" data-key="delta">涨跌<span class="mark"></span></span>
+      <span class="sortable ph" data-key="pct">涨跌幅<span class="mark"></span></span>
+    </div>
+    <div class="watch-rows" id="rows"></div>
+    <div class="panel-foot">行情为模拟数据 · 悬停行尾 ✕ 可删除 · 真实数据接入待定</div>
+  </div>
+</div>
+
+<script>
+/* ================= 数据 =================
+   真实接入时：把 fetchQuotes 换成真实行情源；把 SEARCH_POOL
+   换成搜索联想接口。下面 SEARCH_POOL 模拟"可搜索添加"的股票池。 */
+const SEARCH_POOL = [
+  { code: '000001', name: '平安银行', base: 11.32 }, { code: '000002', name: '万科A', base: 7.85 },
+  { code: '000063', name: '中兴通讯', base: 28.60 }, { code: '000333', name: '美的集团', base: 62.40 },
+  { code: '000651', name: '格力电器', base: 40.15 }, { code: '000858', name: '五粮液', base: 128.55 },
+  { code: '002594', name: '比亚迪', base: 241.20 },   { code: '600036', name: '招商银行', base: 34.28 },
+  { code: '600519', name: '贵州茅台', base: 1458.0 }, { code: '601318', name: '中国平安', base: 48.16 },
+  { code: '601899', name: '紫金矿业', base: 17.42 },  { code: '688981', name: '中芯国际', base: 52.90 },
+  { code: '300750', name: '宁德时代', base: 186.40 }, { code: '601012', name: '隆基绿能', base: 19.66 },
+  { code: '600276', name: '恒瑞医药', base: 43.20 },  { code: '300059', name: '东方财富', base: 13.85 },
+  { code: '600030', name: '中信证券', base: 21.74 },  { code: '000725', name: '京东方A', base: 4.12 },
+  { code: '600031', name: '三一重工', base: 15.96 },  { code: '000651', name: '格力电器', base: 40.15 },
+  { code: '603288', name: '海天味业', base: 35.60 },  { code: '600900', name: '长江电力', base: 27.31 },
+];
+
+/* 初始自选（可增删） */
+const WATCH = [
+  { code: '600519', name: '贵州茅台', base: 1458.0 },
+  { code: '300750', name: '宁德时代', base: 186.40 },
+  { code: '002594', name: '比亚迪', base: 241.20 },
+  { code: '601318', name: '中国平安', base: 48.16 },
+  { code: '000858', name: '五粮液', base: 128.55 },
+  { code: '600036', name: '招商银行', base: 34.28 },
+  { code: '688981', name: '中芯国际', base: 52.90 },
+  { code: '601899', name: '紫金矿业', base: 17.42 },
+];
+
+let quotes = WATCH.map(newQuote);
+
+/* ================= 行情与格式化 ================= */
+function newQuote(item) {
+  const drift = (Math.random() * 1.8 - 0.9) / 100;          // ±0.9%
+  const price = item.base * (1 + drift);
+  const delta = price - item.base;
+  const pct = (delta / item.base) * 100;
+  return { code: item.code, name: item.name, base: item.base, price, delta, pct };
+}
+const cls = v => v > 0.0005 ? 'up' : v < -0.0005 ? 'down' : 'flat';
+const fmt = (n, d = 2) => n.toFixed(d);
+const signed = (n, d = 2) => (n >= 0 ? '+' : '') + n.toFixed(d);
+
+/* ================= 排序状态 ================= */
+let sort = { key: null, dir: 1 };   // key: 'price'|'delta'|'pct'|null(加入序)
+
+function sortedRows() {
+  if (!sort.key) return quotes.slice();
+  const k = sort.key;
+  return quotes.slice().sort((a, b) => (a[k] - b[k]) * sort.dir);
+}
+function clickSort(key) {
+  const marks = document.querySelectorAll('.sortable .mark');
+  marks.forEach(m => m.textContent = '');
+  if (sort.key === key) sort.dir = -sort.dir;          // 同列：反向
+  else { sort.key = key; sort.dir = -1; }              // 新列：先降序
+  const mark = document.querySelector(`.sortable[data-key="${key}"] .mark`);
+  mark.textContent = sort.dir === -1 ? '▼' : '▲';
+  renderPanel();
+}
+
+/* ================= 渲染 ================= */
+function ensureMarqueeWidth() {
+  const track = document.getElementById('track');
+  const box = document.getElementById('scrollBox');
+  let n = 2;
+  track.innerHTML = track.innerHTML.repeat(1);         // 重建单份测量
+  const part = track.innerHTML;
+  while (box.scrollWidth > 0 && track.scrollWidth < box.clientWidth * 2 && n < 8) {
+    track.innerHTML = part.repeat(n *= 2);
+  }
+}
+function renderTicker() {
+  if (!quotes.length) { document.getElementById('track').innerHTML = ''; return; }
+  const part = quotes.map(q => `
+    <span class="tk-item">
+      <span class="tk-name">${q.name}</span>
+      <span class="tk-price ${cls(q.delta)}">${fmt(q.price)}</span>
+      <span class="tk-pct ${cls(q.delta)}">${q.delta >= 0 ? '▲' : '▼'} ${signed(q.pct)}%</span>
+    </span>`).join('');
+  document.getElementById('track').innerHTML = part + part;
+  ensureMarqueeWidth();
+  document.getElementById('count').textContent = `(${quotes.length})`;
+}
+
+function renderPanel() {
+  const rows = document.getElementById('rows');
+  if (!quotes.length) {
+    rows.innerHTML = '<div class="empty-tip">暂无自选股 —— 用上方搜索框添加</div>';
+    return;
+  }
+  rows.innerHTML = sortedRows().map((q, i) => `
+    <div class="watch-row" data-code="${q.code}">
+      <span class="w-name">${q.name}<span class="w-code">${q.code}</span></span>
+      <span class="w-price ${cls(q.delta)}">${fmt(q.price)}</span>
+      <span class="w-delta ${cls(q.delta)}">${signed(q.delta)}</span>
+      <span class="w-pct ${cls(q.delta)}">${signed(q.pct)}%</span>
+      <span class="w-del" title="删除">✕</span>
+    </div>`).join('');
+}
+
+/* ================= 展开/收起 + 排序 + 删除 ================= */
+const widget = document.getElementById('widget');
+const arrow = document.getElementById('arrow');
+document.getElementById('bar').addEventListener('click', () => {
+  widget.classList.toggle('open');
+  arrow.textContent = widget.classList.contains('open') ? '▼' : '▲';
+  if (widget.classList.contains('open')) {
+    setTimeout(() => searchInput.focus(), 30);
+  } else {
+    hideSuggest(); msg('');
+  }
+});
+document.querySelectorAll('.sortable').forEach(th => {
+  th.addEventListener('click', () => clickSort(th.dataset.key));
+});
+document.getElementById('rows').addEventListener('click', e => {
+  const del = e.target.closest('.w-del');
+  if (!del) return;
+  const cd = del.closest('.watch-row').dataset.code;
+  const i = quotes.findIndex(q => q.code === cd);
+  if (i >= 0) quotes.splice(i, 1);
+  renderTicker(); renderPanel(); hideSuggest();
+});
+
+// 悬停暂停滚动
+const scrollBox = document.getElementById('scrollBox');
+scrollBox.addEventListener('mouseenter', () => widget.classList.add('paused'));
+scrollBox.addEventListener('mouseleave', () => widget.classList.remove('paused'));
+
+/* ================= 搜索添加 ================= */
+const searchInput = document.getElementById('searchInput');
+const suggestBox = document.getElementById('suggest');
+const msgEl = document.getElementById('searchMsg');
+
+function msg(t) { msgEl.textContent = t || ''; }
+function hideSuggest() { suggestBox.style.display = 'none'; suggestBox.innerHTML = ''; }
+function findInWatch(code) { return quotes.find(q => q.code === code); }
+
+function addStock(item) {
+  if (!item || findInWatch(item.code)) { msg(item ? `「${item.name}」已在自选股中` : '未找到该股票'); return; }
+  quotes.push({ ...item });
+  if (sort.key) { sort.key = null; document.querySelectorAll('.sortable .mark').forEach(m => m.textContent = ''); }
+  renderTicker(); renderPanel();
+  msg(`已添加 ${item.name}（${item.code}）`);
+}
+
+function filterPool() {
+  const kw = searchInput.value.trim();
+  if (!kw) { hideSuggest(); return []; }
+  const up = kw.toUpperCase();
+  const hits = SEARCH_POOL.filter(s =>
+    s.name.includes(kw) || s.code.includes(kw) || up.includes(s.code)).slice(0, 6);
+  return hits;
+}
+function showSuggest() {
+  const hits = filterPool();
+  if (!hits.length) { hideSuggest(); return; }
+  suggestBox.innerHTML = hits.map(h =>
+    `<div class="opt" data-code="${h.code}">${h.name}<span>${h.code}</span></div>`).join('');
+  suggestBox.style.display = 'block';
+}
+searchInput.addEventListener('input', showSuggest);
+searchInput.addEventListener('focus', showSuggest);
+searchInput.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const kw = searchInput.value.trim();
+  const hits = filterPool();
+  if (hits.length === 1) { addStock(hits[0]); searchInput.value = ''; hideSuggest(); }
+  else {
+    // 兜底：允许手动 "代码 名称"（真实版会走搜索接口）
+    const m = kw.split(/\s+/);
+    if (m.length >= 1 && /^\d{6}$/.test(m[0])) {
+      addStock({ code: m[0], name: m[1] || m[0], base: 20 + Math.random() * 980 });
+      searchInput.value = ''; hideSuggest();
+    } else msg(hits.length > 1 ? '匹配到多个，点候选或输入完整 6 位代码' : '未匹配到，试试完整 6 位代码');
+  }
+});
+suggestBox.addEventListener('mousedown', e => {
+  const opt = e.target.closest('.opt');
+  if (opt) { const s = SEARCH_POOL.find(x => x.code === opt.dataset.code); addStock(s); searchInput.value = ''; hideSuggest(); }
+});
+
+/* ================= 行情刷新循环 ================= */
+function tick() {
+  quotes = quotes.map(q => newQuote(q));
+  renderTicker();
+  renderPanel();
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "watchticker",
+  "productName": "WatchTicker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "自选股行情悬浮窗小程序 —— A股/港股/美股/期货 全品类盯盘",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/quote-mapper.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
