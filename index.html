@@ -22,7 +22,9 @@
   }
 
   /* ---------- 顶栏(常驻 38px,可拖拽;点击=展开/收起) ---------- */
-  .ticker-bar { display: flex; align-items: center; height: 38px; cursor: pointer; flex: 0 0 38px; }
+  /* ---------- 顶栏(常驻 38px):整个是系统拖动区(-webkit-app-region: drag) ----------
+     系统拖标题栏语义:按住拖动=移动窗口,尺寸绝不变。展开/收起交互移到右侧箭头(no-drag) */
+  .ticker-bar { display: flex; align-items: center; height: 38px; cursor: default; flex: 0 0 38px; -webkit-app-region: drag; }
   .ticker-title {
     flex: 0 0 auto; display:flex; align-items:center; gap:6px;
     padding: 0 12px; border-right: 1px solid rgba(255,255,255,.12);
@@ -41,7 +43,7 @@
   .tk-name { color: #f2f5fa; }
   .tk-price { color: #ffffff; font-variant-numeric: tabular-nums; font-weight: 600; }
   .tk-pct  { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 56px; }
-  .tk-bar-arrow { flex: 0 0 auto; padding: 0 10px; color: #9fb0c6; font-size: 11px; }
+  .tk-bar-arrow { flex: 0 0 auto; padding: 0 12px; color: #9fb0c6; font-size: 11px; -webkit-app-region: no-drag; cursor: pointer; user-select: none; }
 
   /* ---------- 展开面板(窗口拉高时可见;panel 占余下高度,列表区滚动) ---------- */
   .panel {
@@ -114,24 +116,7 @@
   .panel-foot {
     padding: 4px 14px; font-size: 10px; color: #6d7c92;
     text-align: right; border-top: 1px solid rgba(255,255,255,.04); flex: 0 0 auto;
-    padding-right: 26px;   /* 给右下角缩放手柄让位 */
   }
-
-  /* 缩放手柄(仅展开态):右下角小三角,按住拖动调窗口高度。移动(顶栏)与缩放(手柄)手势分离 */
-  .resize-handle {
-    position: absolute; right: 0; bottom: 0;
-    width: 20px; height: 20px;
-    cursor: ns-resize; z-index: 30;
-    display: none;
-  }
-  .resize-handle::after {
-    content: ''; position: absolute; right: 3px; bottom: 3px;
-    width: 0; height: 0;
-    border-left: 7px solid transparent;
-    border-bottom: 7px solid rgba(255,255,255,.30);
-  }
-  .resize-handle:hover::after { border-bottom-color: #4a9eff; }
-  .float-widget.open .resize-handle { display: block; }
 </style>
 </head>
 <body>
@@ -158,11 +143,8 @@
       <span class="sortable ph" data-key="pct">涨跌幅<span class="mark"></span></span>
     </div>
     <div class="watch-rows" id="rows"></div>
-    <div class="panel-foot">悬停行尾 ✕ 删除 · 拖拽顶栏移动</div>
+    <div class="panel-foot">点右侧箭头收起 · 拖动顶栏移动 · 悬停窗口边缘可调大小</div>
   </div>
-
-  <!-- 展开态右下角缩放手柄:按住拖动调窗口高度 -->
-  <div class="resize-handle" id="resizeHandle" title="拖动调整高度"></div>
 </div>
 
 <script>
@@ -310,49 +292,12 @@ function setExpanded(open) {
 }
 function toggleOpen() { setExpanded(!widget.classList.contains('open')); }
 
-/* 缩放手柄:按住右下角手柄拖动调高(与顶栏移动手势分离,互不干扰) */
-const resizeHandle = document.getElementById('resizeHandle');
-let rsz = null;   // {y0, h0, lastH}
-resizeHandle.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  rsz = { y0: e.screenY, h0: Math.max(BAR_H, window.innerHeight), lastH: window.innerHeight };
-});
-window.addEventListener('mousemove', e => {
-  if (!rsz) return;
-  const h = rsz.h0 + (e.screenY - rsz.y0);
-  rsz.lastH = h;
-  applyHeight(h);
-});
-window.addEventListener('mouseup', () => {
-  if (!rsz) return;
-  const h = Math.max(H_MIN, Math.min(H_MAX, Math.round(rsz.lastH)));
-  EXPAND_H = h;             // 记录手动尺寸:下次点展开沿用
-  widget.classList.add('open');
-  rsz = null;
-});
-
-/* ================= 拖拽移动(窗口无边框,顶栏拖动;阈值区分单击展开) ================= */
-let press = null;   // {x, y, moved}
-const bar = document.getElementById('bar');
-bar.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, moved: false };
-});
-window.addEventListener('mousemove', e => {
-  if (!press) return;
-  const dx = e.screenX - press.x, dy = e.screenY - press.y;
-  if (!press.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) press.moved = true;
-  if (press.moved && IPC && window.wt.dragMove) {
-    window.wt.dragMove(dx, dy);
-    press.x = e.screenX; press.y = e.screenY;
-  }
-});
-window.addEventListener('mouseup', () => {
-  if (!press) return;
-  const wasDrag = press.moved;
-  press = null;
-  if (!wasDrag) toggleOpen();
-});
+/* ================= 展开/收起 =================
+   顶栏整条是系统拖动区(-webkit-app-region: drag),drag 区元素收不到 click,
+   故展开/收起交互挂在右侧箭头 ▲/▼(no-drag 区)。
+   窗口移动 = 系统拖动(尺寸绝不变);窗口缩放 = 系统边框 resizable:true(悬停边缘即可拉)。 */
+arrow.addEventListener('click', () => toggleOpen());
+arrow.addEventListener('dblclick', e => e.stopPropagation());
 
 /* ================= 排序 + 删除 ================= */
 document.querySelectorAll('.sortable').forEach(th => {

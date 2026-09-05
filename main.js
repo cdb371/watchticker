@@ -14,10 +14,10 @@ function createWindow() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    // resizable:false —— 消除 Windows 无边框窗口边缘的隐形 resize 热区(4-6px),
-    // 否则 38px 高窄条几乎整体落在热区内,拖动窗口会误触发系统缩放。
-    // setSize 缩小失效问题(见 wt:resize)由动态 setResizable(true) 规避。
-    resizable: false,
+    // resizable:true —— 恢复系统边框缩放(用户悬停窗口边缘可拉大小)。
+    // 窗口移动改由 renderer 的 -webkit-app-region: drag 系统拖动处理(拖标题栏语义,
+    // 绝不会改变尺寸),不再手动 setPosition 模拟——彻底消除"拖动误缩放/误放大"。
+    resizable: true,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: false,
@@ -43,17 +43,13 @@ app.whenReady().then(() => {
     try { return await fetchQuotes(quoteIds); }
     catch (err) { console.error('[wt:quotes]', err.message); return []; }
   });
-  // IPC:窗口高度(send,高频安全)。高度由 renderer 决定:38 收起 / 440 默认展开 / 手柄任意
-  // 窗口常驻 resizable:false(防边缘热区让拖动误触发系统缩放);setSize 前动态 setResizable(true)
-  // —— Windows 透明无边框窗口在 false 态无法缩小(探针实测),true 态 setSize 正常。
+  // IPC:窗口高度(send)。renderer 在展开/收起时 setSize 到目标高;resizable:true 常态下直接生效
   ipcMain.on('wt:resize', (e, h) => {
     const w = BrowserWindow.fromWebContents(e.sender);
     if (!w) return;
     const targetH = Math.max(H_MIN, Math.min(H_MAX, Math.round(h)));
     if (w.getSize()[1] === targetH) return;   // 高度未变,跳过
-    w.setResizable(true);
     w.setSize(BAR.width, targetH);
-    w.setResizable(false);
   });
   // IPC:拖拽移动(高频增量,fire-and-forget)。dx/dy 为相对上次鼠标位置的屏幕增量
   ipcMain.on('wt:drag-move', (e, dx, dy) => {
