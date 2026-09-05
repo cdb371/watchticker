@@ -2,36 +2,27 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>自选股悬浮窗 · 交互原型 v2</title>
+<title>自选股悬浮窗</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
   body {
     font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-    background: linear-gradient(160deg, #2b3547 0%, #3a4a63 55%, #2b3547 100%);
-    min-height: 100vh; user-select: none; color: #e8ecf4;
+    color: #e8ecf4; user-select: none;
   }
-  /* ---------- 假的"办公窗口"，衬托悬浮感 ---------- */
-  .fake-window { position: absolute; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; }
-  .fake-window .bar { height: 26px; border-bottom: 1px solid rgba(255,255,255,.05); display:flex; align-items:center; gap:5px; padding: 0 8px; }
-  .fake-window .bar i { width: 7px; height: 7px; border-radius: 50%; display:inline-block; }
-  .fake-window .content { padding: 12px; color: rgba(255,255,255,.15); font-size: 12px; line-height: 1.9; letter-spacing: 1px; }
-  #win1 { top: 40px;  left: 60px;  width: 420px; height: 210px; }
-  #win2 { top: 290px; left: 60px;  width: 420px; height: 150px; }
-  #win3 { top: 70px;  right: 90px; width: 460px; height: 260px; }
 
-  /* ---------- 悬浮窗整体 ---------- */
+  /* ---------- 悬浮卡片：铺满 Electron 窗口(透明背景 + 圆角),窄条/展开两形态由窗口尺寸驱动 ---------- */
   .float-widget {
-    position: fixed; left: 120px; bottom: 150px; z-index: 99;
-    width: 430px;
-    background: rgba(20, 23, 30, .95);
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    background: rgba(20, 23, 30, .96);
     border: 1px solid rgba(255,255,255,.12);
     border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.5);
     overflow: hidden;
   }
 
-  /* ---------- 窄条（常驻形态：滚动播放） ---------- */
-  .ticker-bar { display: flex; align-items: center; height: 38px; cursor: pointer; }
+  /* ---------- 顶栏(常驻 38px,可拖拽;点击=展开/收起) ---------- */
+  .ticker-bar { display: flex; align-items: center; height: 38px; cursor: pointer; flex: 0 0 38px; }
   .ticker-title {
     flex: 0 0 auto; display:flex; align-items:center; gap:6px;
     padding: 0 12px; border-right: 1px solid rgba(255,255,255,.12);
@@ -52,12 +43,16 @@
   .tk-pct  { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 56px; }
   .tk-bar-arrow { flex: 0 0 auto; padding: 0 10px; color: #9fb0c6; font-size: 11px; }
 
-  /* ---------- 展开面板 ---------- */
-  .panel { border-top: 1px solid rgba(255,255,255,.10); display: none; }
-  .float-widget.open .panel { display: block; }
+  /* ---------- 展开面板(窗口拉高时可见;panel 占余下高度,列表区滚动) ---------- */
+  .panel {
+    flex: 1 1 auto; min-height: 0;
+    display: none; flex-direction: column;
+    border-top: 1px solid rgba(255,255,255,.10);
+  }
+  .float-widget.open .panel { display: flex; }
 
-  /* 搜索框（仅展开时可见） */
-  .search-zone { padding: 10px 12px 6px; }
+  /* 搜索框(仅展开时可见) */
+  .search-zone { padding: 10px 12px 4px; position: relative; }
   .search-zone input {
     width: 100%; padding: 8px 12px; font-size: 13px; color: #eef2f8;
     background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16);
@@ -65,19 +60,23 @@
   }
   .search-zone input::placeholder { color: #7c8aa0; }
   .search-zone input:focus { border-color: #4a9eff; background: rgba(255,255,255,.10); }
+  /* 联想候选:窗口内浮层(盖在列表上,不撑高窗口) */
   .suggest {
-    margin: 6px 12px 0; padding: 4px; background: rgba(0,0,0,.35);
-    border: 1px solid rgba(255,255,255,.10); border-radius: 6px; display: none;
-    max-height: 150px; overflow: auto;
+    position: absolute; left: 12px; right: 12px; top: 100%;
+    margin-top: 4px; padding: 4px;
+    background: rgba(10, 12, 17, .98);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 6px;
+    display: none; max-height: 168px; overflow: auto; z-index: 20;
+    box-shadow: 0 6px 18px rgba(0,0,0,.55);
   }
   .suggest .opt { padding: 6px 8px; font-size: 12px; cursor: pointer; color: #dfe7f2; border-radius: 4px; display:flex; justify-content: space-between; }
   .suggest .opt:hover, .suggest .opt.sel { background: #4a9eff; color: #fff; }
-  .search-msg { padding: 2px 12px 8px; font-size: 11px; color: #8ea0bb; min-height: 15px; }
+  .search-msg { padding: 2px 12px 6px; font-size: 11px; color: #8ea0bb; min-height: 15px; flex: 0 0 auto; }
 
-  /* 表头：三列可点击排序 */
+  /* 表头:三列可点击排序 */
   .panel-head {
     display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.1fr; gap: 8px; align-items: center;
-    padding: 6px 14px; font-size: 12px; color: #93a1b5;
+    padding: 5px 14px; font-size: 12px; color: #93a1b5; flex: 0 0 auto;
     border-top: 1px solid rgba(255,255,255,.06); border-bottom: 1px solid rgba(255,255,255,.08);
   }
   .sortable { cursor: pointer; text-align: right; user-select: none; color: #b9c6d8; }
@@ -86,10 +85,10 @@
   .ph { text-align: right; }
 
   /* 列表行 */
-  .watch-rows { max-height: 264px; overflow-y: auto; }
+  .watch-rows { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .watch-row {
     display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.1fr; gap: 8px; align-items: center;
-    padding: 6px 14px; font-size: 13px; position: relative;
+    padding: 5px 14px; font-size: 13px; position: relative;
     border-bottom: 1px solid rgba(255,255,255,.04);
   }
   .watch-row:hover { background: rgba(255,255,255,.06); }
@@ -107,19 +106,18 @@
   .w-del:hover { background: rgba(255,255,255,.15); color: #ff7a7a; }
   .empty-tip { padding: 18px 14px; text-align: center; color: #7c8aa0; font-size: 12px; }
 
-  /* 涨跌色：A股 红涨绿跌 */
+  /* 涨跌色:红涨绿跌 */
   .up   { color: #ff5252 !important; }
   .down { color: #2ecc71 !important; }
   .flat { color: #a8b2c0 !important; }
 
-  .panel-foot { padding: 5px 14px; font-size: 10px; color: #6d7c92; text-align: right; border-top: 1px solid rgba(255,255,255,.04); }
+  .panel-foot {
+    padding: 4px 14px; font-size: 10px; color: #6d7c92;
+    text-align: right; border-top: 1px solid rgba(255,255,255,.04); flex: 0 0 auto;
+  }
 </style>
 </head>
 <body>
-
-<div class="fake-window" id="win1"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">工作文档 · 周报进度<br>……</div></div>
-<div class="fake-window" id="win2"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">表格数据整理……</div></div>
-<div class="fake-window" id="win3"><div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="content">IM 对话窗口……</div></div>
 
 <div class="float-widget" id="widget">
   <div class="ticker-bar" id="bar">
@@ -129,9 +127,9 @@
   </div>
 
   <div class="panel">
-    <!-- 搜索添加：仅展开时显示 -->
+    <!-- 搜索添加:仅展开时显示 -->
     <div class="search-zone">
-      <input id="searchInput" type="text" placeholder="输入代码或名称搜索，回车添加（如 600519 / 茅台）" autocomplete="off">
+      <input id="searchInput" type="text" placeholder="输入代码或名称搜索,回车添加(如 600519 / 茅台 / AAPL)" autocomplete="off">
       <div class="suggest" id="suggest"></div>
     </div>
     <div class="search-msg" id="searchMsg"></div>
@@ -143,7 +141,7 @@
       <span class="sortable ph" data-key="pct">涨跌幅<span class="mark"></span></span>
     </div>
     <div class="watch-rows" id="rows"></div>
-    <div class="panel-foot">行情为模拟数据 · 悬停行尾 ✕ 可删除 · 真实数据接入待定</div>
+    <div class="panel-foot">悬停行尾 ✕ 删除 · 拖拽顶栏可移动</div>
   </div>
 </div>
 
@@ -190,7 +188,7 @@ async function doFetchQuotes(items) {   // 批量行情 → [{quoteId,market,cod
   if (IPC) {
     try { return await window.wt.quotes(items.map(w => w.quoteId)); } catch (e) { return []; }
   }
-  // 降级:浏览器直开时确定性伪行情,保证预览可跑(注意:此分支仅供无 Electron 时看布局)
+  // 降级:浏览器直开时确定性伪行情,保证预览可跑(此分支仅供无 Electron 时看布局)
   const phase = Date.now() / 2000;
   return items.map((w, i) => {
     const base = w.base || 10 + ((w.code.charCodeAt(0) * 7 + w.code.length * 13) % 900);
@@ -222,8 +220,8 @@ function sortedRows() {
 function clickSort(key) {
   const marks = document.querySelectorAll('.sortable .mark');
   marks.forEach(m => m.textContent = '');
-  if (sort.key === key) sort.dir = -sort.dir;          // 同列：反向
-  else { sort.key = key; sort.dir = -1; }              // 新列：先降序
+  if (sort.key === key) sort.dir = -sort.dir;          // 同列:反向
+  else { sort.key = key; sort.dir = -1; }              // 新列:先降序
   const mark = document.querySelector(`.sortable[data-key="${key}"] .mark`);
   mark.textContent = sort.dir === -1 ? '▼' : '▲';
   renderPanel();
@@ -269,18 +267,46 @@ function renderPanel() {
     </div>`).join('');
 }
 
-/* ================= 展开/收起 + 排序 + 删除 ================= */
+/* ================= 窗口形态:展开/收起(resize IPC) ================= */
 const widget = document.getElementById('widget');
 const arrow = document.getElementById('arrow');
-document.getElementById('bar').addEventListener('click', () => {
-  widget.classList.toggle('open');
-  arrow.textContent = widget.classList.contains('open') ? '▼' : '▲';
-  if (widget.classList.contains('open')) {
-    setTimeout(() => searchInput.focus(), 30);
+
+function setExpanded(open) {
+  widget.classList.toggle('open', open);
+  arrow.textContent = open ? '▼' : '▲';
+  if (IPC && window.wt.resize) window.wt.resize(open);   // 主进程调窗口高度
+  if (open) {
+    setTimeout(() => { try { searchInput.focus(); } catch (e) {} }, 30);
   } else {
     hideSuggest(); msg('');
   }
+}
+function toggleOpen() { setExpanded(!widget.classList.contains('open')); }
+
+/* ================= 拖拽移动(窗口无边框,顶栏拖动;阈值区分单击展开) ================= */
+let press = null;   // {x, y, moved}
+const bar = document.getElementById('bar');
+bar.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  press = { x: e.screenX, y: e.screenY, moved: false };
 });
+window.addEventListener('mousemove', e => {
+  if (!press) return;
+  const dx = e.screenX - press.x, dy = e.screenY - press.y;
+  if (!press.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) press.moved = true;
+  if (press.moved && IPC && window.wt.dragMove) {
+    window.wt.dragMove(dx, dy);
+    press.x = e.screenX; press.y = e.screenY;
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (!press) return;
+  const wasDrag = press.moved;
+  press = null;
+  if (!wasDrag) toggleOpen();
+});
+
+/* ================= 排序 + 删除 ================= */
 document.querySelectorAll('.sortable').forEach(th => {
   th.addEventListener('click', () => clickSort(th.dataset.key));
 });
@@ -317,7 +343,7 @@ function addStock(item) {   // item: {quoteId, code, name}
   saveWatch();
   if (sort.key) { sort.key = null; document.querySelectorAll('.sortable .mark').forEach(m => m.textContent = ''); }
   refresh();
-  msg(`已添加 ${item.name}（${item.code}）`);
+  msg(`已添加 ${item.name}(${item.code})`);
 }
 
 let debounceTimer = null;
@@ -343,9 +369,9 @@ searchInput.addEventListener('keydown', async e => {
     addStock(hits[0]); searchInput.value = ''; hideSuggest(); msg('');
   } else if (hits.length > 1) {
     curHits = hits.slice(0, 8);
-    msg('匹配到多个，点选下方候选');
+    msg('匹配到多个,点选下方候选');
   } else {
-    msg('未匹配到，试试完整代码（如 600519 / 00700 / AAPL / cu2609）');
+    msg('未匹配到,试试完整代码(如 600519 / 00700 / AAPL / cu2609)');
   }
 });
 suggestBox.addEventListener('mousedown', e => {
