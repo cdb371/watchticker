@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { searchSuggest, fetchQuotes } = require('./lib/market-api.cjs');
 
@@ -20,7 +20,8 @@ function createWindow() {
     resizable: true,
     maximizable: false,
     fullscreenable: false,
-    skipTaskbar: false,
+    // skipTaskbar:true —— 悬浮窗不占任务栏按钮;程序驻留系统托盘(Tray),右键菜单可隐藏/退出
+    skipTaskbar: true,
     hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -31,6 +32,24 @@ function createWindow() {
   win.setAlwaysOnTop(true);
   win.loadFile('index.html');
   return win;
+}
+
+// 系统托盘:程序驻留右下角状态栏,窗口常显不占任务栏。右键菜单 显示/隐藏/退出,左键切换
+let tray = null;
+function createTray(win) {
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
+  tray = new Tray(icon);
+  tray.setToolTip('WatchTicker 自选股行情');
+  const toggleVisible = () => {
+    if (win.isVisible() && !win.isMinimized()) win.hide();
+    else { win.show(); win.focus(); }
+  };
+  tray.on('click', toggleVisible);          // 左键:显示/隐藏
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示 / 隐藏窗口', click: toggleVisible },
+    { type: 'separator' },
+    { label: '退出 WatchTicker', click: () => app.quit() },
+  ]));
 }
 
 app.whenReady().then(() => {
@@ -58,7 +77,8 @@ app.whenReady().then(() => {
     const [x, y] = w.getPosition();
     w.setPosition(Math.round(x + dx), Math.round(y + dy));
   });
-  createWindow();
+  const win = createWindow();
+  createTray(win);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
