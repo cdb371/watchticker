@@ -3,9 +3,9 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { searchSuggest, fetchQuotes } = require('./lib/market-api.cjs');
 
-// 窗口形态常量(与 renderer 约定):收起 38px 顶栏 / 展开 440px 面板
+// 窗口形态常量(与 renderer 约定):宽度固定 430;高度由 renderer 决定(38 收起/440 默认展开/手柄手动)
 const BAR = { width: 430, height: 38 };
-const EXPAND_HEIGHT = 440;
+const H_MIN = 38, H_MAX = 1000;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,9 +14,10 @@ function createWindow() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    // 注意:必须 resizable:true——Windows 透明无边框窗口在 resizable:false 时 setSize 无法缩小
-    // (无 WS_THICKFRAME,DWM 拒绝 shrink)。frame:false 用户本无 resize 手柄,此开关只影响程序 setSize
-    resizable: true,
+    // resizable:false —— 消除 Windows 无边框窗口边缘的隐形 resize 热区(4-6px),
+    // 否则 38px 高窄条几乎整体落在热区内,拖动窗口会误触发系统缩放。
+    // setSize 缩小失效问题(见 wt:resize)由动态 setResizable(true) 规避。
+    resizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: false,
@@ -42,12 +43,17 @@ app.whenReady().then(() => {
     try { return await fetchQuotes(quoteIds); }
     catch (err) { console.error('[wt:quotes]', err.message); return []; }
   });
-  // IPC:窗口形态(float-polish)。open=true 展开(430x440) / false 收起(430x38)
-  ipcMain.handle('wt:resize', (e, open) => {
+  // IPC:窗口高度(send,高频安全)。高度由 renderer 决定:38 收起 / 440 默认展开 / 手柄任意
+  // 窗口常驻 resizable:false(防边缘热区让拖动误触发系统缩放);setSize 前动态 setResizable(true)
+  // —— Windows 透明无边框窗口在 false 态无法缩小(探针实测),true 态 setSize 正常。
+  ipcMain.on('wt:resize', (e, h) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (!w) return false;
-    w.setSize(BAR.width, open ? EXPAND_HEIGHT : BAR.height);
-    return true;
+    if (!w) return;
+    const targetH = Math.max(H_MIN, Math.min(H_MAX, Math.round(h)));
+    if (w.getSize()[1] === targetH) return;   // 高度未变,跳过
+    w.setResizable(true);
+    w.setSize(BAR.width, targetH);
+    w.setResizable(false);
   });
   // IPC:拖拽移动(高频增量,fire-and-forget)。dx/dy 为相对上次鼠标位置的屏幕增量
   ipcMain.on('wt:drag-move', (e, dx, dy) => {

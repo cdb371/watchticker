@@ -114,7 +114,24 @@
   .panel-foot {
     padding: 4px 14px; font-size: 10px; color: #6d7c92;
     text-align: right; border-top: 1px solid rgba(255,255,255,.04); flex: 0 0 auto;
+    padding-right: 26px;   /* 给右下角缩放手柄让位 */
   }
+
+  /* 缩放手柄(仅展开态):右下角小三角,按住拖动调窗口高度。移动(顶栏)与缩放(手柄)手势分离 */
+  .resize-handle {
+    position: absolute; right: 0; bottom: 0;
+    width: 20px; height: 20px;
+    cursor: ns-resize; z-index: 30;
+    display: none;
+  }
+  .resize-handle::after {
+    content: ''; position: absolute; right: 3px; bottom: 3px;
+    width: 0; height: 0;
+    border-left: 7px solid transparent;
+    border-bottom: 7px solid rgba(255,255,255,.30);
+  }
+  .resize-handle:hover::after { border-bottom-color: #4a9eff; }
+  .float-widget.open .resize-handle { display: block; }
 </style>
 </head>
 <body>
@@ -141,8 +158,11 @@
       <span class="sortable ph" data-key="pct">涨跌幅<span class="mark"></span></span>
     </div>
     <div class="watch-rows" id="rows"></div>
-    <div class="panel-foot">悬停行尾 ✕ 删除 · 拖拽顶栏可移动</div>
+    <div class="panel-foot">悬停行尾 ✕ 删除 · 拖拽顶栏移动</div>
   </div>
+
+  <!-- 展开态右下角缩放手柄:按住拖动调窗口高度 -->
+  <div class="resize-handle" id="resizeHandle" title="拖动调整高度"></div>
 </div>
 
 <script>
@@ -267,14 +287,21 @@ function renderPanel() {
     </div>`).join('');
 }
 
-/* ================= 窗口形态:展开/收起(resize IPC) ================= */
+/* ================= 窗口形态:展开/收起 + 手动缩放(手柄) ================= */
 const widget = document.getElementById('widget');
 const arrow = document.getElementById('arrow');
+const BAR_H = 38;            // 收起态高度(与 main.js 常量一致)
+let EXPAND_H = 440;          // 展开目标高度,可被手动缩放手柄改写
+const H_MIN = 200, H_MAX = 1000;
 
+function applyHeight(h) {
+  h = Math.max(H_MIN, Math.min(H_MAX, Math.round(h)));
+  if (IPC && window.wt.resize) window.wt.resize(h);
+}
 function setExpanded(open) {
   widget.classList.toggle('open', open);
   arrow.textContent = open ? '▼' : '▲';
-  if (IPC && window.wt.resize) window.wt.resize(open);   // 主进程调窗口高度
+  applyHeight(open ? EXPAND_H : BAR_H);
   if (open) {
     setTimeout(() => { try { searchInput.focus(); } catch (e) {} }, 30);
   } else {
@@ -282,6 +309,27 @@ function setExpanded(open) {
   }
 }
 function toggleOpen() { setExpanded(!widget.classList.contains('open')); }
+
+/* 缩放手柄:按住右下角手柄拖动调高(与顶栏移动手势分离,互不干扰) */
+const resizeHandle = document.getElementById('resizeHandle');
+let rsz = null;   // {y0, h0, lastH}
+resizeHandle.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  rsz = { y0: e.screenY, h0: Math.max(BAR_H, window.innerHeight), lastH: window.innerHeight };
+});
+window.addEventListener('mousemove', e => {
+  if (!rsz) return;
+  const h = rsz.h0 + (e.screenY - rsz.y0);
+  rsz.lastH = h;
+  applyHeight(h);
+});
+window.addEventListener('mouseup', () => {
+  if (!rsz) return;
+  const h = Math.max(H_MIN, Math.min(H_MAX, Math.round(rsz.lastH)));
+  EXPAND_H = h;             // 记录手动尺寸:下次点展开沿用
+  widget.classList.add('open');
+  rsz = null;
+});
 
 /* ================= 拖拽移动(窗口无边框,顶栏拖动;阈值区分单击展开) ================= */
 let press = null;   // {x, y, moved}
